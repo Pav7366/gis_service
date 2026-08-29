@@ -1,53 +1,31 @@
+import requests
+import random
+import time
 
-import os
-from sqlalchemy import create_engine, Column, Integer, Float, String
-from sqlalchemy.orm import declarative_base, sessionmaker
-from geoalchemy2 import Geometry
-from geoalchemy2.elements import WKTElement
-from dotenv import load_dotenv
+print("Dropping 20 precise potholes into central Pune...")
 
-# Load the database connection string from your .env file
-load_dotenv()
-DATABASE_URL = os.getenv("DATABASE_URL")
+# Central Pune coordinates
+base_lat = 18.5204
+base_lon = 73.8567
 
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# Define the database table model
-class Pothole(Base):
-    __tablename__ = "potholes"
-
-    id = Column(Integer, primary_key=True, index=True)
-    severity = Column(String(50))
-    depth_cm = Column(Float)
+for i in range(20):
+    # Tightened the variance so they land squarely on city streets
+    lat = base_lat + random.uniform(-0.015, 0.015)
+    lon = base_lon + random.uniform(-0.015, 0.015)
     
-    # The spatial column (EPSG:4326 is standard GPS coordinates)
-    geom = Column(Geometry(geometry_type='POINT', srid=4326))
-
-# Create the table if it does not already exist
-Base.metadata.create_all(bind=engine)
-
-def seed_database():
-    session = SessionLocal()
-    
-    # Mock data using local coordinates around Pune, Maharashtra
-    # Note: WKT format is strictly POINT(Longitude Latitude)
-    mock_data = [
-        Pothole(severity="High", depth_cm=12.5, geom=WKTElement('POINT(73.8567 18.5204)', srid=4326)),
-        Pothole(severity="Medium", depth_cm=5.0, geom=WKTElement('POINT(73.8508 18.4575)', srid=4326)),
-        Pothole(severity="Low", depth_cm=2.5, geom=WKTElement('POINT(73.8123 18.5314)', srid=4326))
-    ]
+    payload = {
+        "hazard_type": "pothole", 
+        "latitude": lat, 
+        "longitude": lon
+    }
     
     try:
-        session.add_all(mock_data)
-        session.commit()
-        print("Successfully seeded the database with spatial pothole data!")
+        # Pushing to your active FastAPI server
+        res = requests.post("http://127.0.0.1:8000/api/hazards/", json=payload)
+        print(f"Pothole {i+1} injected: Status {res.status_code}")
     except Exception as e:
-        session.rollback()
-        print(f"Error seeding data: {e}")
-    finally:
-        session.close()
+        print(f"Server offline or failed to connect: {e}")
+        
+    time.sleep(0.1)
 
-if __name__ == "__main__":
-    seed_database()
+print("Data injection complete! Check your browser map.")

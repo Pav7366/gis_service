@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Smart City MVP</title>
+  <!-- Load Deck.gl and MapLibre -->
+  <script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
+  <script src="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.js"></script>
+  <link href="https://unpkg.com/maplibre-gl@3.3.1/dist/maplibre-gl.css" rel="stylesheet" />
+  
+  <style>
+    body { margin: 0; padding: 0; font-family: sans-serif; }
+    #map { width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+    #ui-panel {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  
+  <!-- Simplified UI Panel -->
+  <div id="ui-panel">
+    <h3 style="margin: 0 0 10px 0;">Pune Infrastructure</h3>
+    <p style="margin: 0 0 5px 0; font-size: 13px;"><strong>Pan:</strong> Left-Click + Drag</p>
+    <p style="margin: 0; font-size: 13px;"><strong>Tilt/Rotate:</strong> Right-Click + Drag <em>or</em> Two-Finger Swipe</p>
+  </div>
+
+  <div id="map"></div>
+
+  <script>
+    // Initialize the Map with gesture-based controller settings
+    const deckgl = new deck.DeckGL({
+      container: 'map',
+      mapStyle: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+      initialViewState: { longitude: 73.8567, latitude: 18.5204, zoom: 14, pitch: 50, bearing: 0 },
+      
+      // The magic happens here: Unlocking all native navigation gestures
+      controller: { 
+        dragRotate: true,   // Allows Right-Click (or Ctrl+Click) to tilt vertically and rotate
+        touchRotate: true,  // Allows Two-Finger touchscreen/trackpad swipe to tilt and rotate
+        dragPan: true,      // Normal map movement
+        scrollZoom: true,   // Mouse wheel zooming
+        doubleClickZoom: true,
+        touchZoom: true,    // Pinch to zoom
+        keyboard: true      // Allows Shift + Up/Down arrow keys to tilt vertically
+      },
+      layers: []
+    });
+
+    // Function to fetch data from your FastAPI backend
+    async function loadData() {
+      try {
+        const res = await fetch('/api/hazards/');
+        const data = await res.json();
+        
+        const layer = new deck.ScatterplotLayer({
+          id: 'potholes',
+          data: data,
+          getPosition: d => [d.longitude, d.latitude],
+          getFillColor: [220, 20, 60], // Bright Crimson Red
+          getRadius: 15,
+          radiusMinPixels: 6,
+          pickable: true,
+          autoHighlight: true,
+          onClick: ({object}) => alert(`Hazard: ${object.type.toUpperCase()}`)
+        });
+
+        deckgl.setProps({ layers: [layer] });
+      } catch (error) {
+        console.error("Waiting for data...");
+      }
+    }
+
+    // Refresh map every 3 seconds
+    setInterval(loadData, 3000);
+    loadData();
+  </script>
+</body>
+</html>
