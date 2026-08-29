@@ -1,22 +1,51 @@
-from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from .database import engine, Base
-from .routers import hazards
+from typing import Optional
+from fastapi import FastAPI, Depends
+from fastapi.staticfiles import StaticFiles # <-- Added this import
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import json
 
-# Create Database Tables
-Base.metadata.create_all(bind=engine)
+# Adjust imports based on where you saved your seed_data models
+from app.seed import SessionLocal, Pothole 
 
-app = FastAPI(title="Smart City GIS API")
+app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-)
+# <-- Added this line to unlock the static folder -->
+app.mount("/static", StaticFiles(directory="app/static", html=True), name="static")
 
-# Include the Spatial API
-app.include_router(hazards.router)
+# Dependency to open and close the database connection
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-# Mount the Frontend Dashboard
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+@app.get("/api/potholes")
+def get_potholes(db: Session = Depends(get_db)):
+    # We use PostGIS's built-in ST_AsGeoJSON function to format the coordinates
+    query = db.query(
+        Pothole.id,
+        Pothole.severity,
+        Pothole.depth_cm,
+        func.ST_AsGeoJSON(Pothole.geom).label('geometry')
+    ).all()
+
+    # Build standard GeoJSON FeatureCollection
+    features = []
+    for row in query:
+        feature = {
+            "type": "Feature",
+            "geometry": json.loads(row.geometry),
+            "properties": {
+                "id": row.id,
+                "severity": row.severity,
+                "depth_cm": row.depth_cm
+            }
+        }
+        features.append(feature)
+
+    return {
+        "type": "FeatureCollection",
+        "features": features
+    }
