@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Database Viewer</title>
+  <style>
+    body { margin: 0; padding: 0; font-family: sans-serif; display: flex; height: 100vh; }
+    #sidebar { width: 250px; background: #f4f4f4; border-right: 1px solid #ddd; padding: 20px; overflow-y: auto; }
+    #content { flex: 1; padding: 20px; overflow-y: auto; }
+    .table-link { display: block; padding: 10px; margin-bottom: 5px; background: white; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; }
+    .table-link:hover { background: #e0e0e0; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 10px; border: 1px solid #ddd; text-align: left; }
+    th { background: #1976d2; color: white; }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <h3>Database Tables</h3>
+    <div id="table-list">Loading...</div>
+  </div>
+
+  <div id="content">
+    <h2 id="current-table">Select a table</h2>
+    <div id="table-data"></div>
+  </div>
+
+  <script>
+    // Fetch available tables on load
+    async function loadTables() {
+      const res = await fetch('/api/tables');
+      const tables = await res.json();
+      const list = document.getElementById('table-list');
+      list.innerHTML = '';
+      tables.forEach(table => {
+        list.innerHTML += `<div class="table-link" onclick="loadTableData('${table}')">🗄️ ${table}</div>`;
+      });
+    }
+
+    // Fetch and display specific table data
+    async function loadTableData(tableName) {
+      document.getElementById('current-table').innerText = `Table: ${tableName}`;
+      const res = await fetch(`/api/table/${tableName}`);
+      const data = await res.json();
+      
+      const container = document.getElementById('table-data');
+      if (data.length === 0) {
+        container.innerHTML = "<p>Table is empty.</p>";
+        return;
+      }
+
+      // Generate HTML Table dynamically
+      let html = '<table><tr>';
+      Object.keys(data[0]).forEach(key => html += `<th>${key.toUpperCase()}</th>`);
+      html += '</tr>';
+      
+      data.forEach(row => {
+        html += '<tr>';
+        Object.values(row).forEach(val => html += `<td>${val}</td>`);
+        html += '</tr>';
+      });
+      html += '</table>';
+      container.innerHTML = html;
+    }
+
+    loadTables();
+  </script>
+</body>
+</html>

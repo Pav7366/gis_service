@@ -1,9 +1,11 @@
 import os
+import json
+from datetime import datetime
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, Integer, String, Float, func
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, func, text
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from geoalchemy2 import Geometry
 
@@ -14,28 +16,48 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 class HazardDB(Base):
-    __tablename__ = "hazards"
+    __tablename__ = "hazards_v3" # Renamed to v3 to force a fresh table with new columns
     id = Column(Integer, primary_key=True, index=True)
     hazard_type = Column(String, index=True)
-    geom = Column(Geometry('POINT', srid=4326)) # PostGIS Geometry
+    geom = Column(Geometry('GEOMETRY', srid=4326))
+    
+    # New Columns for Dashboard & Logs
+    area = Column(String, default="Unknown")
+    status = Column(String, default="Under Review")
+    confidence = Column(Float, default=0.0)
+    severity = Column(String, default="Medium")
+    reported_at = Column(DateTime, default=datetime.utcnow)
 
 Base.metadata.create_all(bind=engine)
 
 # --- API SCHEMAS ---
 class HazardCreate(BaseModel):
     hazard_type: str
-    latitude: float
-    longitude: float
+    geometry: dict
+    area: str
+    status: str
+    confidence: float
+    severity: str
 
 # --- FASTAPI APP ---
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.post("/api/hazards/")
 def create_hazard(hazard: HazardCreate):
     db: Session = SessionLocal()
-    incoming_wkt = f"POINT({hazard.longitude} {hazard.latitude})"
-    new_hazard = HazardDB(hazard_type=hazard.hazard_type, geom=incoming_wkt)
+    geojson_str = json.dumps(hazard.geometry)
+    new_hazard = HazardDB(
+        hazard_type=hazard.hazard_type, 
+        geom=func.ST_SetSRID(func.ST_GeomFromGeoJSON(geojson_str), 4326),
+        area=hazard.area,
+        status=hazard.status,
+        confidence=hazard.confidence,
+        severity=hazard.severity
+    )
     db.add(new_hazard)
     db.commit()
     db.close()
@@ -45,13 +67,53 @@ def create_hazard(hazard: HazardCreate):
 def get_hazards():
     db: Session = SessionLocal()
     hazards = db.query(
-        HazardDB.hazard_type,
-        func.ST_Y(HazardDB.geom).label('lat'),
-        func.ST_X(HazardDB.geom).label('lon')
+        HazardDB.id, HazardDB.hazard_type, HazardDB.area, HazardDB.status,
+        HazardDB.confidence, HazardDB.severity, HazardDB.reported_at,
+        func.ST_AsGeoJSON(HazardDB.geom).label('geojson')
     ).all()
     db.close()
-    return [{"type": h.hazard_type, "latitude": h.lat, "longitude": h.lon} for h in hazards]
+    
+    features = []
+    for h in hazards:
+        features.append({
+            "type": "Feature",
+            "geometry": json.loads(h.geojson),
+            "properties": {
+                "id": h.id, "hazard_type": h.hazard_type, "area": h.area,
+                "status": h.status, "confidence": h.confidence,
+                "severity": h.severity, "reported_at": h.reported_at.strftime("%Y-%m-%d %H:%M:%S")
+            }
+        })
+    return {"type": "FeatureCollection", "features": features}
 
+# Database Page API
+@app.get("/api/tables")
+def get_tables():
+    db: Session = SessionLocal()
+    result = db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")).fetchall()
+    db.close()
+    return [row[0] for row in result]
+
+@app.get("/api/table/{table_name}")
+def get_table_data(table_name: str):
+    db: Session = SessionLocal()
+    # Basic protection against SQL injection by checking if table exists in schema
+    valid_tables = [row[0] for row in db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")).fetchall()]
+    if table_name not in valid_tables:
+        return {"error": "Invalid table"}
+    
+    # Exclude geometry column from direct JSON dump as it's binary
+    query = f"SELECT id, hazard_type, area, status, confidence, severity, reported_at FROM {table_name}"
+    result = db.execute(text(query)).fetchall()
+    keys = db.execute(text(query)).keys()
+    db.close()
+    return [dict(zip(keys, row)) for row in result]
+
+# Frontend Routes
 @app.get("/")
 def serve_dashboard():
-    return FileResponse("static/index.html")
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
+@app.get("/database")
+def serve_database_page():
+    return FileResponse(os.path.join(STATIC_DIR, "database.html"))
