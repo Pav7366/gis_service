@@ -109,12 +109,11 @@
     const deckgl = new deck.DeckGL({
       container: 'map',
       mapStyle: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-      initialViewState: { longitude: 73.8567, latitude: 18.5204, zoom: 13, pitch: 45 },
+      initialViewState: { longitude: 73.8567, latitude: 18.5204, zoom: 15, pitch: 50 },
       controller: true,
       layers: []
     });
 
-    // --- THEME TOGGLE LOGIC ---
     function toggleTheme() {
       isLightMode = !isLightMode;
       document.body.classList.toggle('light-mode', isLightMode);
@@ -125,9 +124,10 @@
           ? 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json' 
           : 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'
       });
+      // Re-render map to update border colors for dark/light mode
+      renderMap(); 
     }
 
-    // --- DATA FETCHING & RENDERING ---
     async function fetchData() {
       const res = await fetch('/api/hazards/');
       globalData = await res.json();
@@ -153,10 +153,25 @@
         layers.push(new deck.GeoJsonLayer({
           id: 'geojson-layer',
           data: { type: "FeatureCollection", features: filteredFeatures },
-          pickable: true, stroked: true, filled: true,
-          lineWidthScale: 15, lineWidthMinPixels: 4, getPointRadius: 15, pointRadiusMinPixels: 6,
+          pickable: true, 
+          stroked: true, // Crucial for precision: adds outlines
+          filled: true,
+          
+          // PRECISION SETTINGS
+          lineWidthScale: 1, 
+          lineWidthMinPixels: 2, // Thinner lines for dividers
+          getPointRadius: 2, // Shrunk from 15m to 2m for hyper-precision
+          pointRadiusMinPixels: 4, // Prevents them from becoming totally invisible
+          
           getFillColor: d => d.geometry.type === 'Point' ? [211, 47, 47] : [25, 118, 210, 150],
-          getLineColor: d => d.geometry.type === 'LineString' ? [245, 124, 0] : [255, 255, 255]
+          
+          // Dynamic borders: White in dark mode, Black in light mode for max contrast
+          getLineColor: d => {
+            if (d.geometry.type === 'Point' || d.geometry.type === 'Polygon') {
+               return isLightMode ? [0, 0, 0, 200] : [255, 255, 255, 200];
+            }
+            return [245, 124, 0]; // Orange for lines
+          }
         }));
       }
 
@@ -170,17 +185,15 @@
           data: heatmapPoints,
           getPosition: d => d.coordinates,
           getWeight: d => d.weight,
-          radiusPixels: 50,
+          radiusPixels: 40,
           colorRange: [[0, 0, 139], [0, 0, 255], [255, 255, 0], [255, 165, 0], [255, 0, 0]]
         }));
       }
       deckgl.setProps({ layers });
     }
 
-    // --- UI INTERACTIONS ---
     function toggleSidebar() {
       document.getElementById('sidebar').classList.toggle('minimized');
-      // Hide dropdown instantly if sidebar minimizes
       if(document.getElementById('sidebar').classList.contains('minimized')) {
         document.getElementById('filter-dropdown').style.display = 'none';
       }
@@ -215,16 +228,15 @@
     }
 
     function getStatusColor(status) {
-      if (status === 'Approved') return '#4caf50'; // Green
-      if (status === 'Rejected') return '#f44336'; // Red
-      if (status === 'Waitlist') return '#d4a017'; // Darker Yellow/Gold for visibility
-      return ''; // Default for Under Review
+      if (status === 'Approved') return '#4caf50';
+      if (status === 'Rejected') return '#f44336';
+      if (status === 'Waitlist') return '#d4a017';
+      return ''; 
     }
 
     function refreshPanelData() {
       const content = document.getElementById('panel-data');
       
-      // Filter logic: Dashboard = Pending/Waitlist, Logs = Approved/Rejected
       const activeData = globalData.features.filter(f => {
         const s = f.properties.status;
         if (currentPanelView === 'dashboard') return s === 'Under Review' || s === 'Waitlist';
@@ -262,11 +274,11 @@
 
     window.jumpTo = function(lon, lat) {
       deckgl.setProps({
-        initialViewState: { longitude: lon, latitude: lat, zoom: 18, pitch: 45, transitionDuration: 1500 }
+        // Zooming in closer (level 19) to show off the new precision
+        initialViewState: { longitude: lon, latitude: lat, zoom: 19, pitch: 60, transitionDuration: 1500 }
       });
     };
 
-    // --- BOTTOM PANEL RESIZING ---
     const handle = document.getElementById('drag-handle');
     const panel = document.getElementById('bottom-panel');
     handle.addEventListener('mousedown', () => { isDragging = true; });
