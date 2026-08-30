@@ -16,12 +16,11 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 class HazardDB(Base):
-    __tablename__ = "hazards_v3" # Renamed to v3 to force a fresh table with new columns
+    __tablename__ = "hazards_v3" 
     id = Column(Integer, primary_key=True, index=True)
     hazard_type = Column(String, index=True)
     geom = Column(Geometry('GEOMETRY', srid=4326))
     
-    # New Columns for Dashboard & Logs
     area = Column(String, default="Unknown")
     status = Column(String, default="Under Review")
     confidence = Column(Float, default=0.0)
@@ -86,30 +85,41 @@ def get_hazards():
         })
     return {"type": "FeatureCollection", "features": features}
 
-# Database Page API
+# Database Page API (Cleaned up!)
 @app.get("/api/tables")
 def get_tables():
     db: Session = SessionLocal()
-    result = db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")).fetchall()
+    # Filter out internal PostGIS system tables to keep UI clean
+    query = """
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name NOT IN ('spatial_ref_sys', 'geometry_columns', 'geography_columns')
+    """
+    result = db.execute(text(query)).fetchall()
     db.close()
     return [row[0] for row in result]
 
 @app.get("/api/table/{table_name}")
 def get_table_data(table_name: str):
     db: Session = SessionLocal()
-    # Basic protection against SQL injection by checking if table exists in schema
-    valid_tables = [row[0] for row in db.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'")).fetchall()]
+    valid_query = """
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name NOT IN ('spatial_ref_sys', 'geometry_columns', 'geography_columns')
+    """
+    valid_tables = [row[0] for row in db.execute(text(valid_query)).fetchall()]
+    
     if table_name not in valid_tables:
         return {"error": "Invalid table"}
     
-    # Exclude geometry column from direct JSON dump as it's binary
     query = f"SELECT id, hazard_type, area, status, confidence, severity, reported_at FROM {table_name}"
     result = db.execute(text(query)).fetchall()
     keys = db.execute(text(query)).keys()
     db.close()
     return [dict(zip(keys, row)) for row in result]
 
-# Frontend Routes
 @app.get("/")
 def serve_dashboard():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
