@@ -1,1 +1,96 @@
 @import "tailwindcss";
+
+/* --- HEATMAP BUTTON DESIGN (mean-mayfly-77) --- */
+.uiverse {
+  --duration: 7s;
+  --easing: linear;
+  --c-color-1: rgba(255, 163, 26, 0.7);
+  --c-color-2: #1a23ff;
+  --c-color-3: #e21bda;
+  --c-color-4: rgba(255, 232, 26, 0.7);
+  --c-shadow: rgba(255, 223, 87, 0.5);
+  --c-shadow-inset-top: rgba(255, 223, 52, 0.9);
+  --c-shadow-inset-bottom: rgba(255, 250, 215, 0.8);
+  --c-radial-inner: #ece8e1;
+  --c-radial-outer: #fff;
+  --c-color: #505050;
+  
+  appearance: none;
+  outline: none;
+  position: relative;
+  cursor: pointer;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  padding: 0;
+  margin: 0;
+  text-align: center;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.5;
+  color: var(--c-color);
+  background: radial-gradient(circle, var(--c-radial-inner), var(--c-radial-outer) 80%);
+  box-shadow: 0 0 14px var(--c-shadow);
+  transition: transform 0.2s ease, box-shadow 0.3s ease;
+  height: 40px;
+  min-width: 120px;
+}
+
+/* Button Active State (When Heatmap is ON) */
+.uiverse.active-heatmap {
+  --c-radial-inner: #fff5e6;
+  --c-radial-outer: #ffe4b5;
+  --c-color: #d97706;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.8);
+}
+
+.uiverse:before {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  z-index: 3;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 24px;
+  box-shadow: inset 0 3px 12px var(--c-shadow-inset-top), inset 0 -3px 4px var(--c-shadow-inset-bottom);
+}
+
+.uiverse:hover {
+  transform: scale(1.03);
+}
+
+.uiverse:active {
+  transform: scale(0.97);
+}
+
+.uiverse .wrapper {
+  overflow: hidden;
+  border-radius: 24px;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  z-index: 1;
+}
+
+/* --- ROW HIGHLIGHT ANIMATION (3 Twinkles) --- */
+@keyframes twinkleBlue {
+  0%, 33.3%, 66.6%, 100% {
+    background-color: transparent;
+  }
+  16.6%, 50%, 83.3% {
+    background-color: rgba(59, 130, 246, 0.4); /* Bright Tailwind Blue */
+  }
+}
+
+.animate-twinkle {
+  animation: twinkleBlue 2.5s ease-in-out;
+}
