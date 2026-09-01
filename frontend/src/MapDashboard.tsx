@@ -20,7 +20,6 @@ export default function MapDashboard() {
   const [panelHeight, setPanelHeight] = useState(300);
   const [isDragging, setIsDragging] = useState(false);
   
-  // NEW: State to track which row is currently twinkling
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
 
   const [filters, setFilters] = useState({ potholes: true, cracks: true, garbage_dumps: true });
@@ -77,24 +76,16 @@ export default function MapDashboard() {
     setViewState({ ...viewState, longitude: lon, latitude: lat, zoom: 19, pitch: 60, transitionDuration: 1500 as any });
   };
 
-  // NEW: Handle clicking on a map damage point
   const handleMapClick = (id: number) => {
-    // 1. Open dashboard if closed, and ensure it is tall enough to see
     setDashboardOpen(true);
     setPanelHeight(prev => prev < 300 ? 300 : prev);
-    
-    // 2. Set the ID so the CSS class applies
     setHighlightedId(id);
-    
-    // 3. Wait for the dashboard to slide up, then scroll to the row
     setTimeout(() => {
       const row = document.getElementById(`row-${id}`);
       if (row) {
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-    }, 350); // 350ms delay accounts for the CSS transition duration of the dashboard
-
-    // 4. Remove the highlight after the animation completes so it can be re-triggered later
+    }, 350); 
     setTimeout(() => {
       setHighlightedId(null);
     }, 2800);
@@ -112,25 +103,33 @@ export default function MapDashboard() {
   });
 
   const layers = [
-    heatmapActive && new GeoJsonLayer({
+    // FIX: Baseline only shows if heatmap is active AND at least one filter is checked
+    heatmapActive && filteredFeatures.length > 0 && new GeoJsonLayer({
       id: 'heatmap-baseline',
       data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[73.0, 18.0], [74.5, 18.0], [74.5, 19.5], [73.0, 19.5], [73.0, 18.0]]] }, properties: {} }] },
       getFillColor: [0, 0, 139, 90], stroked: false,
     }),
+    
+    // FIX: Heatmap now uses 'filteredFeatures' so it instantly obeys the dropdown checkboxes!
     heatmapActive && new HeatmapLayer({
       id: 'heatmap-layer',
-      data: safeFeatures
-        .filter((f: any) => !f.properties?.is_false_positive && f.geometry?.type === 'Point')
-        .map((f: any) => f.geometry.coordinates),
-      getPosition: (d: any) => d,
+      data: filteredFeatures,
+      getPosition: (f: any) => {
+        const c = f.geometry?.coordinates;
+        if (!c) return [0, 0];
+        if (f.geometry.type === 'Point') return c;
+        if (f.geometry.type === 'LineString') return c[0];
+        if (f.geometry.type === 'Polygon') return c[0][0];
+        return [0, 0];
+      },
       radiusPixels: 130, intensity: 1.5, threshold: 0.05,
       colorRange: [[0, 0, 139], [0, 0, 255], [255, 255, 0], [255, 165, 0], [255, 0, 0]]
     }),
+    
     new GeoJsonLayer({
       id: 'geojson-layer',
       data: { type: 'FeatureCollection', features: filteredFeatures },
       pickable: true, stroked: true, filled: true,
-      // NEW: Added the onClick listener!
       onClick: (info) => {
         if (info.object && info.object.properties) {
           handleMapClick(info.object.properties.id);
@@ -260,7 +259,6 @@ export default function MapDashboard() {
                     else if (f.geometry.type === 'Polygon') { lon = c[0][0][0]; lat = c[0][0][1]; }
                   }
 
-                  // NEW: ID attached to the row for smooth scrolling, and dynamic class for animation
                   return (
                     <tr 
                       key={p.id} 
@@ -301,7 +299,6 @@ export default function MapDashboard() {
         </div>
       </div>
 
-      {/* Adding cursor pointer class to DeckGL canvas */}
       <div className="flex-1 relative z-0 [&_canvas]:cursor-pointer">
         <DeckGL viewState={viewState} onViewStateChange={({ viewState }) => setViewState(viewState)} controller={true} layers={layers}>
           <Map mapStyle={isLightMode ? 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json' : 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json'} />
