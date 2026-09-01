@@ -21,7 +21,6 @@ export default function MapDashboard() {
   const [isDragging, setIsDragging] = useState(false);
   
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
-
   const [filters, setFilters] = useState({ potholes: true, cracks: true, garbage_dumps: true });
 
   const fetchData = async () => {
@@ -103,14 +102,11 @@ export default function MapDashboard() {
   });
 
   const layers = [
-    // FIX: Baseline only shows if heatmap is active AND at least one filter is checked
     heatmapActive && filteredFeatures.length > 0 && new GeoJsonLayer({
       id: 'heatmap-baseline',
       data: { type: 'FeatureCollection', features: [{ type: 'Feature', geometry: { type: 'Polygon', coordinates: [[[73.0, 18.0], [74.5, 18.0], [74.5, 19.5], [73.0, 19.5], [73.0, 18.0]]] }, properties: {} }] },
       getFillColor: [0, 0, 139, 90], stroked: false,
     }),
-    
-    // FIX: Heatmap now uses 'filteredFeatures' so it instantly obeys the dropdown checkboxes!
     heatmapActive && new HeatmapLayer({
       id: 'heatmap-layer',
       data: filteredFeatures,
@@ -125,7 +121,6 @@ export default function MapDashboard() {
       radiusPixels: 130, intensity: 1.5, threshold: 0.05,
       colorRange: [[0, 0, 139], [0, 0, 255], [255, 255, 0], [255, 165, 0], [255, 0, 0]]
     }),
-    
     new GeoJsonLayer({
       id: 'geojson-layer',
       data: { type: 'FeatureCollection', features: filteredFeatures },
@@ -151,29 +146,27 @@ export default function MapDashboard() {
     })
   ].filter(Boolean);
 
-  const solidThemeClasses = isLightMode ? 'bg-white text-slate-800 border-slate-300' : 'bg-[#1e1e1e] text-white border-neutral-700';
+  // --- REFINED TRUE GLASSMORPHISM ---
   const glassSidebar = isLightMode 
-    ? 'bg-white/50 backdrop-blur-2xl backdrop-saturate-150 border-r border-white/60 text-slate-900 shadow-[4px_0_24px_rgba(0,0,0,0.05)]' 
-    : 'bg-[#1c1c1e]/60 backdrop-blur-2xl backdrop-saturate-150 border-r border-white/10 text-white shadow-[4px_0_24px_rgba(0,0,0,0.3)]';
-  const glassMenuItem = isLightMode ? 'border-black/5 hover:bg-black/5' : 'border-white/10 hover:bg-white/10';
+    ? 'bg-white/20 backdrop-blur-xl border-r border-white/40 text-slate-800 shadow-xl' 
+    : 'bg-black/30 backdrop-blur-xl border-r border-white/10 text-white shadow-xl';
+    
+  const glassPanel = isLightMode
+    ? 'bg-white/50 backdrop-blur-xl text-slate-900 border-t border-white/50 shadow-[0_-4px_24px_rgba(0,0,0,0.1)]'
+    : 'bg-black/60 backdrop-blur-xl text-white border-t border-white/10 shadow-[0_-4px_24px_rgba(0,0,0,0.5)]';
+
+  const sidebarBorder = isLightMode ? 'border-white/40' : 'border-white/10';
+  const sidebarHover = isLightMode ? 'hover:bg-white/30' : 'hover:bg-white/10';
 
   return (
-    <div className="w-screen h-screen overflow-hidden flex relative">
+    <div className="w-screen h-screen overflow-hidden flex relative bg-slate-900">
       
       <div className="absolute top-4 right-4 z-10 flex gap-4 items-center">
-        <button 
-          onClick={() => setHeatmapActive(!heatmapActive)} 
-          className={`uiverse ${heatmapActive ? 'active-heatmap' : ''}`}
-        >
-          <div className="wrapper">
-            <span>🔥 Heatmap</span>
-          </div>
+        <button onClick={() => setHeatmapActive(!heatmapActive)} className={`uiverse ${heatmapActive ? 'active-heatmap' : ''}`}>
+          <div className="wrapper"><span>🔥 Heatmap</span></div>
         </button>
 
-        <button
-          onClick={() => setIsLightMode(!isLightMode)}
-          className={`relative w-16 h-8 flex items-center rounded-full p-1 transition-colors duration-300 focus:outline-none shadow-inner cursor-pointer ${isLightMode ? 'bg-sky-300' : 'bg-slate-700'}`}
-        >
+        <button onClick={() => setIsLightMode(!isLightMode)} className={`relative w-16 h-8 flex items-center rounded-full p-1 transition-colors duration-300 focus:outline-none shadow-inner cursor-pointer ${isLightMode ? 'bg-sky-300' : 'bg-slate-700'}`}>
           <div className="absolute flex justify-between w-full px-2 left-0 pointer-events-none">
             <Moon size={14} className="text-slate-200" />
             <Sun size={14} className="text-amber-500" />
@@ -183,69 +176,66 @@ export default function MapDashboard() {
           </div>
         </button>
 
-        <button 
-          onClick={() => navigate('/')} 
-          className="px-4 h-10 rounded-full bg-rose-600 text-white shadow-md font-bold cursor-pointer hover:bg-rose-700 transition"
-        >
+        <button onClick={() => navigate('/')} className="px-4 h-10 rounded-full bg-rose-600/90 text-white shadow-md font-bold cursor-pointer hover:bg-rose-700 backdrop-blur-sm transition">
           Sign Out
         </button>
       </div>
 
-      <div className={`absolute top-0 left-0 h-full z-10 transition-all duration-300 ease-in-out flex flex-col overflow-hidden ${glassSidebar} ${sidebarOpen ? 'w-64' : 'w-[50px]'}`}>
-        
-        <div className={`p-4 cursor-pointer text-center text-xl font-bold transition-colors duration-200 border-b ${glassMenuItem}`} onClick={() => setSidebarOpen(!sidebarOpen)}>
+      {/* --- SIDEBAR --- */}
+      <div className={`absolute top-0 left-0 h-full z-10 transition-all duration-300 flex flex-col ${glassSidebar} ${sidebarOpen ? 'w-64' : 'w-[50px]'}`}>
+        <div className={`p-4 cursor-pointer text-center text-xl font-bold border-b ${sidebarBorder} ${sidebarHover} transition-colors`} onClick={() => { setSidebarOpen(!sidebarOpen); setFiltersOpen(false); }}>
           ☰
         </div>
         
         <div className={`flex flex-col ${!sidebarOpen && 'hidden'}`}>
-          <div className={`p-4 cursor-pointer font-bold border-b transition-colors duration-200 ${glassMenuItem}`} onClick={() => setDashboardOpen(true)}>
+          <div className={`p-4 cursor-pointer font-bold border-b ${sidebarBorder} ${sidebarHover} transition-colors`} onClick={() => setDashboardOpen(true)}>
             Dashboard Overview
           </div>
           
-          <div className={`p-4 cursor-pointer font-bold border-b transition-colors duration-200 ${glassMenuItem}`} onClick={() => setFiltersOpen(!filtersOpen)}>
+          <div className={`p-4 cursor-pointer font-bold border-b ${sidebarBorder} ${sidebarHover} transition-colors`} onClick={() => setFiltersOpen(!filtersOpen)}>
             Map Filters
           </div>
-          
           {filtersOpen && (
-            <div className={`p-4 border-b text-sm flex flex-col gap-3 shadow-inner transition-colors duration-200 ${isLightMode ? 'bg-black/5 border-black/5' : 'bg-black/20 border-white/10'}`}>
+            <div className={`p-4 border-b text-sm flex flex-col gap-3 shadow-inner transition-colors duration-200 ${isLightMode ? 'bg-white/20 border-white/40' : 'bg-black/20 border-white/10'}`}>
               {Object.keys(filters).map(key => (
-                <label key={key} className="flex items-center gap-3 cursor-pointer group">
-                  <input type="checkbox" className="w-4 h-4 accent-blue-600 transition-transform group-hover:scale-110 cursor-pointer" checked={filters[key as keyof typeof filters]} onChange={() => setFilters({...filters, [key]: !filters[key as keyof typeof filters]})} />
-                  <span className="capitalize font-medium opacity-90 group-hover:opacity-100 transition-opacity">{key.replace('_', ' ')}</span>
+                <label key={key} className="flex items-center gap-2 cursor-pointer font-medium">
+                  <input 
+                    type="checkbox" 
+                    checked={filters[key as keyof typeof filters]} 
+                    onChange={() => setFilters({...filters, [key]: !filters[key as keyof typeof filters]})}
+                    className="rounded border-gray-400 bg-transparent text-blue-500 focus:ring-blue-500 cursor-pointer" 
+                  />
+                  <span className="capitalize">{key.replace('_', ' ')}</span>
                 </label>
               ))}
             </div>
           )}
           
-          <div className={`p-4 cursor-pointer font-bold border-b transition-colors duration-200 ${glassMenuItem}`} onClick={() => window.open('/database.html', '_blank')}>
-            Open Database
+          <div className={`p-4 cursor-pointer font-bold border-b ${sidebarBorder} ${sidebarHover} transition-colors`} onClick={() => window.open('/database.html', '_blank')}>
+            Database
           </div>
         </div>
       </div>
 
-      <div style={{ height: dashboardOpen ? `${panelHeight}px` : '0px' }} className={`absolute bottom-0 left-0 w-full z-20 shadow-[0_-2px_10px_rgba(0,0,0,0.5)] flex flex-col transition-[height] duration-300 ${solidThemeClasses}`}>
-        <div onMouseDown={() => setIsDragging(true)} className={`h-2.5 cursor-ns-resize w-full ${isLightMode ? 'bg-slate-300' : 'bg-[#444]'}`} />
+      {/* --- BOTTOM DASHBOARD --- */}
+      <div style={{ height: dashboardOpen ? `${panelHeight}px` : '0px' }} className={`absolute bottom-0 left-0 w-full z-20 flex flex-col transition-[height] duration-300 ${glassPanel}`}>
+        <div onMouseDown={() => setIsDragging(true)} className={`h-2.5 cursor-ns-resize w-full hover:bg-white/20 transition-colors ${isLightMode ? 'bg-black/10' : 'bg-white/10'}`} />
         
-        <div className={`p-2.5 px-5 flex justify-between font-bold ${isLightMode ? 'bg-slate-100' : 'bg-[#2d2d2d]'}`}>
+        <div className={`p-2.5 px-5 flex justify-between font-bold border-b bg-black/5 ${isLightMode ? 'border-white/50' : 'border-white/10'}`}>
           <span>Validation Dashboard</span>
-          <button onClick={() => setDashboardOpen(false)} className="text-red-500 hover:text-red-400 font-bold cursor-pointer text-lg">✖</button>
+          <button onClick={() => setDashboardOpen(false)} className="text-red-500 hover:text-red-600 font-bold cursor-pointer text-lg transition-colors">✖</button>
         </div>
         
         <div className="flex-1 overflow-auto p-4 relative">
           {safeFeatures.length === 0 ? (
-            <p>No records found.</p>
+            <p className="font-medium">No records found.</p>
           ) : (
             <table className="w-full text-left border-collapse text-sm">
               <thead>
                 <tr>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Sr.No</th>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Type</th>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Area</th>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Date/Time</th>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Coordinates</th>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Severity</th>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Validation</th>
-                  <th className={`sticky top-0 p-2.5 border-b z-10 ${isLightMode ? 'bg-slate-100 border-slate-300' : 'bg-[#2d2d2d] border-[#333]'}`}>Action</th>
+                  {['Sr.No', 'Type', 'Area', 'Date/Time', 'Coordinates', 'Severity', 'Validation', 'Action'].map((heading, idx) => (
+                    <th key={idx} className={`sticky top-0 p-2.5 border-b z-10 font-semibold bg-black/5 ${isLightMode ? 'border-white/50 bg-slate-100/90 backdrop-blur' : 'border-white/10 bg-slate-800/90 backdrop-blur'}`}>{heading}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
@@ -259,25 +249,25 @@ export default function MapDashboard() {
                     else if (f.geometry.type === 'Polygon') { lon = c[0][0][0]; lat = c[0][0][1]; }
                   }
 
+                  const trBorder = isLightMode ? 'border-white/40' : 'border-white/10';
+
                   return (
                     <tr 
                       key={p.id} 
                       id={`row-${p.id}`}
-                      className={`transition-colors ${highlightedId === p.id ? 'animate-twinkle' : ''}`}
+                      className={`hover:bg-black/5 dark:hover:bg-white/10 transition-colors ${highlightedId === p.id ? 'animate-twinkle' : ''}`}
                     >
-                      <td className={`p-2.5 border-b ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>{i + 1}</td>
-                      <td className={`p-2.5 border-b font-semibold ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>
+                      <td className={`p-2.5 border-b ${trBorder}`}>{i + 1}</td>
+                      <td className={`p-2.5 border-b font-semibold ${trBorder}`}>
                         <span style={{color: p.hazard_type === 'pothole' ? '#dc2626' : p.hazard_type === 'crack' ? '#ea580c' : '#9333ea'}}>
                            {p.hazard_type?.replace('_', ' ').toUpperCase()}
                         </span>
                       </td>
-                      <td className={`p-2.5 border-b ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>{p.area}</td>
-                      <td className={`p-2.5 border-b ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>{p.reported_at}</td>
-                      <td className={`p-2.5 border-b font-mono text-xs ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>
-                        {lat.toFixed(5)}, {lon.toFixed(5)}
-                      </td>
-                      <td className={`p-2.5 border-b ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>{p.severity}</td>
-                      <td className={`p-2.5 border-b ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>
+                      <td className={`p-2.5 border-b ${trBorder}`}>{p.area}</td>
+                      <td className={`p-2.5 border-b ${trBorder}`}>{p.reported_at}</td>
+                      <td className={`p-2.5 border-b font-mono text-xs ${trBorder}`}>{lat.toFixed(5)}, {lon.toFixed(5)}</td>
+                      <td className={`p-2.5 border-b ${trBorder}`}>{p.severity}</td>
+                      <td className={`p-2.5 border-b ${trBorder}`}>
                         <button 
                           onClick={() => toggleFalsePositive(p.id)} 
                           className={`px-3 py-1 rounded text-xs font-bold transition cursor-pointer ${p.is_false_positive ? 'bg-red-500 text-white shadow-md' : 'bg-gray-400 text-white hover:bg-gray-500'}`}
@@ -285,8 +275,8 @@ export default function MapDashboard() {
                           {p.is_false_positive ? 'False Positive' : 'Valid'}
                         </button>
                       </td>
-                      <td className={`p-2.5 border-b ${isLightMode ? 'border-slate-200' : 'border-[#333]'}`}>
-                        <button onClick={() => jumpTo(lon, lat)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs cursor-pointer hover:bg-blue-700 shadow-sm">
+                      <td className={`p-2.5 border-b ${trBorder}`}>
+                        <button onClick={() => jumpTo(lon, lat)} className="bg-blue-600/90 text-white px-3 py-1 rounded text-xs cursor-pointer hover:bg-blue-700 backdrop-blur-sm transition shadow-sm">
                           Jump 📍
                         </button>
                       </td>
