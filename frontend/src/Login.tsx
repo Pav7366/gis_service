@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { LoginForm } from './components/LoginForm';
 import { ForgotPasswordModal } from './components/ForgotPasswordModal';
 import { SuccessView } from './components/SuccessView';
-import { BACKGROUND_PRESETS } from 'C:\\Users\\pavan\\Downloads\\gis_service\\frontend\\src\\data\\backgrounds.ts';
+import { BACKGROUND_PRESETS } from "./data/backgrounds";
 import { LoginFormData } from './types';
 import { Upload, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';

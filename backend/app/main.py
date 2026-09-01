@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from geoalchemy2 import Geometry
 
-DATABASE_URL = "postgresql://postgres:gis_password@localhost:5433/smartcity_gis"
+DATABASE_URL = "postgresql://bususer:buspass@db:5432/fleet"
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
