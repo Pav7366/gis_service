@@ -7,6 +7,8 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useNavigate } from 'react-router-dom';
 import { Sun, Moon } from 'lucide-react';
 
+const API_BASE = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8001';
+
 export default function MapDashboard() {
   const navigate = useNavigate();
   const [data, setData] = useState({ features: [] });
@@ -25,7 +27,7 @@ export default function MapDashboard() {
 
   const fetchData = async () => {
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/hazards/');
+      const res = await fetch(`${API_BASE}/api/hazards/`);
       const json = await res.json();
       if (json && json.features) setData(json);
     } catch (err) { 
@@ -67,7 +69,7 @@ export default function MapDashboard() {
       return { ...prevData, features: updatedFeatures };
     });
     try {
-      await fetch(`http://127.0.0.1:8000/api/hazards/${id}/toggle_false_positive`, { method: 'PUT' });
+      await fetch(`${API_BASE}/api/hazards/${id}/toggle_false_positive`, { method: 'PUT' });
     } catch (err) { fetchData(); }
   };
 

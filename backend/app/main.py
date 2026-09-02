@@ -152,8 +152,8 @@ def get_table_data(table_name: str):
     if table_name not in valid_tables:
         return {"error": "Invalid table"}
 
-    query = f"SELECT id, hazard_type, area, status, confidence, severity, reported_at FROM {table_name}"
+    query = f"SELECT * FROM {table_name} LIMIT 100"
     result = db.execute(text(query)).fetchall()
-    keys = db.execute(text(query)).keys()
+    keys = list(db.execute(text(query)).keys())
     db.close()
     return [dict(zip(keys, row)) for row in result]
