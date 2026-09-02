@@ -1,6 +1,0 @@
-fastapi
-uvicorn
-sqlalchemy
-psycopg2
-geoalchemy2
-requests
