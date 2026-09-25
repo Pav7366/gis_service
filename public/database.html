@@ -38,6 +38,30 @@
       return 'gray'; // Under Review
     }
 
+    // Hazard-type colors from the GIS registry (/api/hazard-types/). Falls back
+    // to gray for unregistered types; reloaded on every table open so new
+    // registrations show up without a page refresh.
+    let hazardTypeColors = {};
+
+    async function loadHazardTypes() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/hazard-types/`);
+        if (!res.ok) return;
+        const data = await res.json();
+        for (const [type, meta] of Object.entries(data)) {
+          hazardTypeColors[type] = meta.color_hex;
+        }
+      } catch (error) {
+        hazardTypeColors = {};
+      }
+    }
+
+    function typeColor(value) {
+      if (!value) return '#94a3b8';
+      const key = String(value).toLowerCase();
+      return hazardTypeColors[key] || '#94a3b8';
+    }
+
     async function loadTables() {
       try {
         const res = await fetch(`${API_BASE_URL}/api/tables`);
@@ -54,6 +78,7 @@
 
     async function loadTableData(tableName) {
       document.getElementById('current-table').innerText = `Table: ${tableName}`;
+      await loadHazardTypes();
       const res = await fetch(`${API_BASE_URL}/api/table/${tableName}`);
       const data = await res.json();
       
@@ -72,6 +97,8 @@
         Object.entries(row).forEach(([key, val]) => {
           if (key === 'status') {
              html += `<td style="color: ${getStatusColor(val)}; font-weight: bold;">${val}</td>`;
+          } else if (key === 'type') {
+             html += `<td style="color: ${typeColor(val)}; font-weight: bold;">${val}</td>`;
           } else {
              html += `<td>${val}</td>`;
           }

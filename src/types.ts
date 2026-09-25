@@ -19,3 +19,10 @@ export interface BackgroundOption {
   url: string;
   description: string;
 }
+export interface HazardTypeMeta {
+  type: string;
+  label: string;
+  color_rgb: [number, number, number];
+  color_hex: string;
+  radius: number;
+}

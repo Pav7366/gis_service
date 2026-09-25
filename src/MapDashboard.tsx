@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import DeckGL from '@deck.gl/react';
 import type { MapViewState } from '@deck.gl/core';
 import { FlyToInterpolator } from '@deck.gl/core';
@@ -9,20 +9,21 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Database, Sun, Moon, Search,
-  Filter, Settings, HelpCircle, Calendar, ChevronDown, MapPinned
+  Filter, Settings, HelpCircle, ChevronDown
 } from "lucide-react";
 
 import ExportModal from './ExportModal';
+import { fetchHazardTypes, getHazardStyle } from './hazardTypes';
+import type { HazardTypeMeta } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8001';
 
-const categoryColors: Record<string, string> = {
-  potholes: '#dc2626',
-  cracks: '#ea580c',
-  garbage_dumps: '#9333ea',
-};
+const DEFAULT_PIN_COLOR = '#94a3b8'; // slate fallback for unregistered types
 
 // --- CUSTOM TEARDROP PIN ICONS ---
+// Inner icon shapes are per-type templates; the registered color is injected at
+// render time so a brand-new detection class still gets an icon that matches
+// its (possibly auto-assigned) color.
 function createPinIcon(fillColor: string, iconSvg: string) {
   const svg = `
 <svg xmlns="http://www.w3.org/2000/svg" width="40" height="52" viewBox="0 0 40 52">
@@ -33,19 +34,61 @@ function createPinIcon(fillColor: string, iconSvg: string) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-const potholeIconInner = `<path d="M-5,-3 L-2,-6 L3,-5 L6,-1 L4,4 L-1,6 L-6,2 Z" fill="#dc2626"/>`;
-const crackIconInner = `<path d="M-6,-6 L-2,-1 L-4,1 L0,5 L2,2 L6,6" stroke="#ea580c" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-const garbageIconInner = `<path d="M-5,-5 L5,-5 M-4,-5 L-4,-7 L4,-7 L4,-5 M-3,-5 L-3,6 L3,6 L3,-5" stroke="#9333ea" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+function innerIconFor(type: string, color: string): string {
+  switch (type) {
+    case 'pothole':
+      return `<path d="M-5,-3 L-2,-6 L3,-5 L6,-1 L4,4 L-1,6 L-6,2 Z" fill="${color}"/>`;
+    case 'crack':
+      return `<path d="M-6,-6 L-2,-1 L-4,1 L0,5 L2,2 L6,6" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    case 'garbage_dump':
+      return `<path d="M-5,-5 L5,-5 M-4,-5 L-4,-7 L4,-7 L4,-5 M-3,-5 L-3,6 L3,6 L3,-5" stroke="${color}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+    case 'waterlogging':
+      return `<path d="M0,-6 C2.5,-2.5 5.5,-0.5 5.5,2.5 A5.5 5.5 0 1 1 -5.5,2.5 C-5.5,-0.5 -2.5,-2.5 0,-6 Z" fill="${color}"/>`;
+    case 'sign_damage':
+      return `<path d="M0,-6 L6,5 L-6,5 Z" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/><path d="M0,-2.5 L0,1.5" stroke="${color}" stroke-width="2" stroke-linecap="round"/><circle cx="0" cy="4" r="1.3" fill="${color}"/>`;
+    case 'vehicle_count':
+      return `<rect x="-6" y="-5" width="12" height="7" rx="1.5" fill="none" stroke="${color}" stroke-width="2"/><path d="M-4,-5 L-3,-7 L3,-7 L4,-5" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/><circle cx="-3" cy="4" r="1.6" fill="${color}"/><circle cx="3" cy="4" r="1.6" fill="${color}"/>`;
+    case 'school_children':
+      return `<circle cx="0" cy="-4" r="2.2" fill="${color}"/><path d="M-4,4 A4 5 0 0 1 4,4 M0,-1.5 L0,3 M0,3 L-2.5,5 M0,3 L2.5,5" stroke="${color}" stroke-width="1.8" fill="none" stroke-linecap="round"/>`;
+    case 'incident_anpr':
+      return `<rect x="-6" y="-5" width="12" height="8" rx="1.5" fill="none" stroke="${color}" stroke-width="2"/><circle cx="-1" cy="-1" r="2" fill="none" stroke="${color}" stroke-width="1.5"/><path d="M2,2 L3.5,3.5" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/>`;
+    default:
+      return `<circle r="4" fill="${color}"/>`;
+  }
+}
 
-const POTHOLE_PIN = createPinIcon('#dc2626', potholeIconInner);
-const CRACK_PIN = createPinIcon('#ea580c', crackIconInner);
-const GARBAGE_PIN = createPinIcon('#9333ea', garbageIconInner);
+// Base pin size (width in px for the default radius 3); scaled linearly by the
+// registered radius so pothole (4) > crack (3) and garbage_dump (6) is biggest.
+const BASE_PIN_SIZE = 30; // width at radius 3
+const PIN_HEIGHT_FACTOR = 52 / 40;
 
-const pinForType: Record<string, string> = {
-  pothole: POTHOLE_PIN,
-  crack: CRACK_PIN,
-  garbage_dump: GARBAGE_PIN,
+// Fallback pin (slate, default size) for types with no registry entry.
+const FALLBACK_PIN = {
+  url: createPinIcon(DEFAULT_PIN_COLOR, innerIconFor('unknown', DEFAULT_PIN_COLOR)),
+  width: BASE_PIN_SIZE,
+  height: Math.round(BASE_PIN_SIZE * PIN_HEIGHT_FACTOR),
+  size: Math.round(BASE_PIN_SIZE * PIN_HEIGHT_FACTOR),
 };
+
+// Build one distinct teardrop pin per registered type (color + inner shape).
+// `size` is the rendered height in pixels (getSize in deck.gl sizes the icon
+// box), so larger-radius types render as larger pins.
+function buildPins(registry: Record<string, HazardTypeMeta>): Record<string, { url: string; width: number; height: number; size: number }> {
+  const pins: Record<string, { url: string; width: number; height: number; size: number }> = {};
+  const types = Object.keys(registry).length ? Object.keys(registry) : ['pothole', 'crack', 'garbage_dump'];
+  for (const type of types) {
+    const meta = getHazardStyle(type, registry);
+    const width = Math.round(BASE_PIN_SIZE * (meta.radius / 3));
+    const height = Math.round(width * PIN_HEIGHT_FACTOR);
+    pins[type] = {
+      url: createPinIcon(meta.color_hex, innerIconFor(type, meta.color_hex)),
+      width,
+      height,
+      size: height,
+    };
+  }
+  return pins;
+}
 
 export default function MapDashboard() {
   const navigate = useNavigate();
@@ -66,7 +109,10 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
 
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
-  const [filters, setFilters] = useState({ potholes: true, cracks: true, garbage_dumps: true });
+  const [filters, setFilters] = useState<Record<string, boolean>>({});
+  const [hazardRegistry, setHazardRegistry] = useState<Record<string, HazardTypeMeta>>({});
+  const [legendPos, setLegendPos] = useState<{ x: number; y: number } | null>(null);
+  const legendRef = useRef<HTMLDivElement>(null);
 
   const fetchData = async () => {
     try {
@@ -78,8 +124,13 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
     }
   };
 
+  const fetchRegistry = async () => {
+    setHazardRegistry(await fetchHazardTypes(API_BASE));
+  };
+
   useEffect(() => {
     fetchData();
+    fetchRegistry();
     const interval = setInterval(fetchData, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -168,22 +219,58 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
 
   const safeFeatures = data.features || [];
 
+  // Every type the map knows about: registered types plus any type actually
+  // present in the live feed (so brand-new detections always appear in the UI).
+  const knownTypes = Array.from(
+    new Set([
+      ...Object.keys(hazardRegistry),
+      ...safeFeatures.map((f: any) => String(f.properties?.hazard_type || 'unknown')),
+    ]),
+  ).sort();
+
+  // A type is hidden only when explicitly toggled off; everything else
+  // (registered but empty, or brand-new from the feed) defaults to visible.
   const filteredFeatures = safeFeatures.filter((f: any) => {
     if (f.properties?.is_false_positive) return false;
-    const type = f.properties?.hazard_type;
-    if (filters.potholes && type === 'pothole') return true;
-    if (filters.cracks && type === 'crack') return true;
-    if (filters.garbage_dumps && type === 'garbage_dump') return true;
-    return false;
+    const type = String(f.properties?.hazard_type || 'unknown');
+    return filters[type] !== false;
   });
 
   const pointFeatures = filteredFeatures.filter((f: any) => f.geometry?.type === 'Point');
   const otherFeatures = filteredFeatures.filter((f: any) => f.geometry?.type !== 'Point');
 
-  const counts = {
-    potholes: safeFeatures.filter((f: any) => f.properties?.hazard_type === 'pothole' && !f.properties?.is_false_positive).length,
-    cracks: safeFeatures.filter((f: any) => f.properties?.hazard_type === 'crack' && !f.properties?.is_false_positive).length,
-    garbage_dumps: safeFeatures.filter((f: any) => f.properties?.hazard_type === 'garbage_dump' && !f.properties?.is_false_positive).length,
+  const counts = knownTypes.reduce<Record<string, number>>((acc, type) => {
+    acc[type] = safeFeatures.filter(
+      (f: any) => String(f.properties?.hazard_type || 'unknown') === type && !f.properties?.is_false_positive,
+    ).length;
+    return acc;
+  }, {});
+
+  const pins = useMemo(() => buildPins(hazardRegistry), [hazardRegistry]);
+
+  // User-draggable legend: starts at the default bottom-left spot the first
+  // time it is dragged; position is kept in state so the card stays where the
+  // user left it while the map re-renders (5s polling).
+  const startLegendDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const el = legendRef.current;
+    if (!el) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startLeft = legendPos?.x ?? el.offsetLeft;
+    const startTop = legendPos?.y ?? el.offsetTop;
+
+    const onMove = (ev: MouseEvent) => {
+      const x = Math.min(Math.max(startLeft + ev.clientX - startX, 8), window.innerWidth - el.offsetWidth - 8);
+      const y = Math.min(Math.max(startTop + ev.clientY - startY, 8), window.innerHeight - el.offsetHeight - 8);
+      setLegendPos({ x, y });
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   };
 
   const layers = [
@@ -215,12 +302,7 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
           handleMapClick(info.object.properties.id);
         }
       },
-      getFillColor: (d: any) => {
-        if (d.properties.hazard_type === 'pothole') return [220, 38, 38];
-        if (d.properties.hazard_type === 'crack') return [249, 115, 22];
-        if (d.properties.hazard_type === 'garbage_dump') return [147, 51, 234];
-        return [200, 200, 200];
-      },
+      getFillColor: (d: any) => getHazardStyle(d.properties?.hazard_type, hazardRegistry).color_rgb,
       getLineColor: isLightMode ? [255, 255, 255, 200] : [0, 0, 0, 200]
     }),
     !heatmapActive && new IconLayer({
@@ -228,13 +310,17 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
       data: pointFeatures,
       pickable: true,
       getPosition: (d: any) => d.geometry.coordinates,
-      getIcon: (d: any) => ({
-        url: pinForType[d.properties.hazard_type] || POTHOLE_PIN,
-        width: 40,
-        height: 52,
-        anchorY: 52,
-      }),
-      getSize: 40,
+      getIcon: (d: any) => {
+        const type = String(d.properties?.hazard_type || 'unknown');
+        const pin = pins[type] || FALLBACK_PIN;
+        return { url: pin.url, width: pin.width, height: pin.height };
+      },
+      getSize: (d: any) => {
+        const type = String(d.properties?.hazard_type || 'unknown');
+        return (pins[type] || FALLBACK_PIN).size;
+      },
+      getAnchorX: 0.5,
+      getAnchorY: 1,
       sizeUnits: 'pixels',
       onClick: (info) => {
         if (info.object && info.object.properties) {
@@ -358,32 +444,36 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
                 <div>
                   <h3 className={`font-heading font-bold mb-3 text-sm ${isLightMode ? 'text-stone-800' : 'text-slate-100'}`}>Map Filters</h3>
                   <div className="flex flex-col gap-2.5">
-                    {(Object.keys(filters) as Array<keyof typeof filters>).map(key => (
-                      <label key={key} className="flex items-center justify-between cursor-pointer group">
-                        <div className="flex items-center gap-2.5">
-                          <input
-                            type="checkbox"
-                            checked={filters[key]}
-                            onChange={() => setFilters({ ...filters, [key]: !filters[key] })}
-                            className="hidden"
-                          />
-                          <div
-                            className="w-2.5 h-2.5 rounded-full shrink-0"
-                            style={{ backgroundColor: filters[key] ? categoryColors[key] : (isLightMode ? '#d6d3d1' : '#475569') }}
-                          />
-                          <span className={`text-sm font-medium capitalize ${
-                            filters[key]
-                              ? (isLightMode ? 'text-stone-800' : 'text-slate-100')
-                              : (isLightMode ? 'text-stone-400' : 'text-slate-500')
-                          }`}>
-                            {key.replace('_', ' ')}
+                    {knownTypes.map(type => {
+                      const meta = getHazardStyle(type, hazardRegistry);
+                      const checked = filters[type] !== false;
+                      return (
+                        <label key={type} className="flex items-center justify-between cursor-pointer group">
+                          <div className="flex items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => setFilters({ ...filters, [type]: !checked })}
+                              className="hidden"
+                            />
+                            <div
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: checked ? meta.color_hex : (isLightMode ? '#d6d3d1' : '#475569') }}
+                            />
+                            <span className={`text-sm font-medium capitalize ${
+                              checked
+                                ? (isLightMode ? 'text-stone-800' : 'text-slate-100')
+                                : (isLightMode ? 'text-stone-400' : 'text-slate-500')
+                            }`}>
+                              {meta.label}
+                            </span>
+                          </div>
+                          <span className={`text-xs font-mono ${isLightMode ? 'text-stone-400' : 'text-slate-500'}`}>
+                            {counts[type].toLocaleString()}
                           </span>
-                        </div>
-                        <span className={`text-xs font-mono ${isLightMode ? 'text-stone-400' : 'text-slate-500'}`}>
-                          {counts[key].toLocaleString()}
-                        </span>
-                      </label>
-                    ))}
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -523,6 +613,41 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
         </button>
       </div>
 
+      {/* --- LEGEND (user-draggable) --- */}
+      <div
+        ref={legendRef}
+        onMouseDown={startLegendDrag}
+        title="Drag to move"
+        style={legendPos ? { left: legendPos.x, top: legendPos.y } : undefined}
+        className={`absolute z-10 rounded-2xl px-3 py-2.5 shadow-[0_8px_30px_rgb(0,0,0,0.12)] border transition-colors select-none cursor-grab active:cursor-grabbing ${
+          isLightMode ? 'bg-white/90 backdrop-blur border-stone-200/60' : 'bg-[#0b1120]/90 backdrop-blur border-white/10'
+        } ${legendPos ? '' : 'bottom-6 left-4'}`}
+      >
+        <div className={`flex items-center justify-between gap-3 text-[10px] font-bold uppercase tracking-wider mb-1.5 ${isLightMode ? 'text-stone-400' : 'text-slate-500'}`}>
+          Hazard Types
+          <span className={`font-mono normal-case tracking-normal ${isLightMode ? 'text-stone-300' : 'text-slate-600'}`}>⋮⋮</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          {knownTypes.map(type => {
+            const meta = getHazardStyle(type, hazardRegistry);
+            const hidden = filters[type] === false;
+            return (
+              <div
+                key={type}
+                className={`flex items-center gap-2 text-xs ${hidden ? 'opacity-40' : ''}`}
+              >
+                <span
+                  className="w-3 h-3 rounded-full shrink-0 border border-black/10"
+                  style={{ backgroundColor: meta.color_hex }}
+                />
+                <span className={`font-semibold ${isLightMode ? 'text-stone-700' : 'text-slate-200'}`}>{meta.label}</span>
+                <span className={`font-mono ${isLightMode ? 'text-stone-400' : 'text-slate-500'}`}>{counts[type].toLocaleString()}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* --- VALIDATION DASHBOARD: SLIDES IN FROM RIGHT --- */}
 <div
   style={{ width: dashboardOpen ? `${panelWidth}px` : '0px' }}
@@ -577,8 +702,8 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
                 >
                   <td className={`p-2.5 border-b ${trBorder}`}>{i + 1}</td>
                   <td className={`p-2.5 border-b font-semibold ${trBorder}`}>
-                    <span style={{ color: p.hazard_type === 'pothole' ? '#dc2626' : p.hazard_type === 'crack' ? '#ea580c' : '#9333ea' }}>
-                      {p.hazard_type?.replace('_', ' ').toUpperCase()}
+                    <span style={{ color: getHazardStyle(p.hazard_type, hazardRegistry).color_hex }}>
+                      {(p.hazard_type || 'unknown').replace('_', ' ').toUpperCase()}
                     </span>
                   </td>
                   <td className={`p-2.5 border-b ${trBorder}`}>{p.area}</td>
