@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import DeckGL from '@deck.gl/react';
 import type { MapViewState } from '@deck.gl/core';
 import { FlyToInterpolator } from '@deck.gl/core';
-import { GeoJsonLayer, IconLayer } from '@deck.gl/layers';
+import { GeoJsonLayer, ScatterplotLayer } from '@deck.gl/layers';
 import { HeatmapLayer } from '@deck.gl/aggregation-layers';
 import { Map } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -17,78 +17,6 @@ import { fetchHazardTypes, getHazardStyle } from './hazardTypes';
 import type { HazardTypeMeta } from './types';
 
 const API_BASE = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8001';
-
-const DEFAULT_PIN_COLOR = '#94a3b8'; // slate fallback for unregistered types
-
-// --- CUSTOM TEARDROP PIN ICONS ---
-// Inner icon shapes are per-type templates; the registered color is injected at
-// render time so a brand-new detection class still gets an icon that matches
-// its (possibly auto-assigned) color.
-function createPinIcon(fillColor: string, iconSvg: string) {
-  const svg = `
-<svg xmlns="http://www.w3.org/2000/svg" width="40" height="52" viewBox="0 0 40 52">
-  <path d="M20 0C8.96 0 0 8.95 0 20c0 14.5 20 32 20 32s20-17.5 20-32C40 8.95 31.04 0 20 0z" fill="${fillColor}" stroke="white" stroke-width="2"/>
-  <circle cx="20" cy="19" r="11" fill="white"/>
-  <g transform="translate(20,19)">${iconSvg}</g>
-</svg>`.trim();
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-function innerIconFor(type: string, color: string): string {
-  switch (type) {
-    case 'pothole':
-      return `<path d="M-5,-3 L-2,-6 L3,-5 L6,-1 L4,4 L-1,6 L-6,2 Z" fill="${color}"/>`;
-    case 'crack':
-      return `<path d="M-6,-6 L-2,-1 L-4,1 L0,5 L2,2 L6,6" stroke="${color}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-    case 'garbage_dump':
-      return `<path d="M-5,-5 L5,-5 M-4,-5 L-4,-7 L4,-7 L4,-5 M-3,-5 L-3,6 L3,6 L3,-5" stroke="${color}" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
-    case 'waterlogging':
-      return `<path d="M0,-6 C2.5,-2.5 5.5,-0.5 5.5,2.5 A5.5 5.5 0 1 1 -5.5,2.5 C-5.5,-0.5 -2.5,-2.5 0,-6 Z" fill="${color}"/>`;
-    case 'sign_damage':
-      return `<path d="M0,-6 L6,5 L-6,5 Z" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/><path d="M0,-2.5 L0,1.5" stroke="${color}" stroke-width="2" stroke-linecap="round"/><circle cx="0" cy="4" r="1.3" fill="${color}"/>`;
-    case 'vehicle_count':
-      return `<rect x="-6" y="-5" width="12" height="7" rx="1.5" fill="none" stroke="${color}" stroke-width="2"/><path d="M-4,-5 L-3,-7 L3,-7 L4,-5" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/><circle cx="-3" cy="4" r="1.6" fill="${color}"/><circle cx="3" cy="4" r="1.6" fill="${color}"/>`;
-    case 'school_children':
-      return `<circle cx="0" cy="-4" r="2.2" fill="${color}"/><path d="M-4,4 A4 5 0 0 1 4,4 M0,-1.5 L0,3 M0,3 L-2.5,5 M0,3 L2.5,5" stroke="${color}" stroke-width="1.8" fill="none" stroke-linecap="round"/>`;
-    case 'incident_anpr':
-      return `<rect x="-6" y="-5" width="12" height="8" rx="1.5" fill="none" stroke="${color}" stroke-width="2"/><circle cx="-1" cy="-1" r="2" fill="none" stroke="${color}" stroke-width="1.5"/><path d="M2,2 L3.5,3.5" stroke="${color}" stroke-width="1.5" stroke-linecap="round"/>`;
-    default:
-      return `<circle r="4" fill="${color}"/>`;
-  }
-}
-
-// Base pin size (width in px for the default radius 3); scaled linearly by the
-// registered radius so pothole (4) > crack (3) and garbage_dump (6) is biggest.
-const BASE_PIN_SIZE = 30; // width at radius 3
-const PIN_HEIGHT_FACTOR = 52 / 40;
-
-// Fallback pin (slate, default size) for types with no registry entry.
-const FALLBACK_PIN = {
-  url: createPinIcon(DEFAULT_PIN_COLOR, innerIconFor('unknown', DEFAULT_PIN_COLOR)),
-  width: BASE_PIN_SIZE,
-  height: Math.round(BASE_PIN_SIZE * PIN_HEIGHT_FACTOR),
-  size: Math.round(BASE_PIN_SIZE * PIN_HEIGHT_FACTOR),
-};
-
-// Build one distinct teardrop pin per registered type (color + inner shape).
-// `size` is the rendered height in pixels (getSize in deck.gl sizes the icon
-// box), so larger-radius types render as larger pins.
-function buildPins(registry: Record<string, HazardTypeMeta>): Record<string, { url: string; width: number; height: number; size: number }> {
-  const pins: Record<string, { url: string; width: number; height: number; size: number }> = {};
-  const types = Object.keys(registry).length ? Object.keys(registry) : ['pothole', 'crack', 'garbage_dump'];
-  for (const type of types) {
-    const meta = getHazardStyle(type, registry);
-    const width = Math.round(BASE_PIN_SIZE * (meta.radius / 3));
-    const height = Math.round(width * PIN_HEIGHT_FACTOR);
-    pins[type] = {
-      url: createPinIcon(meta.color_hex, innerIconFor(type, meta.color_hex)),
-      width,
-      height,
-      size: height,
-    };
-  }
-  return pins;
-}
 
 export default function MapDashboard() {
   const navigate = useNavigate();
@@ -105,7 +33,7 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
   const [endDate, setEndDate] = useState('');
   const [severity, setSeverity] = useState('High, Medium, Low');
   const [status, setStatus] = useState('Reported, In-Progress, Fixed');
-  const [viewMode, setViewMode] = useState<'pins' | 'clusters' | 'heatmap'>('pins');
+  const [viewMode, setViewMode] = useState<'points' | 'clusters' | 'heatmap'>('points');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
@@ -246,8 +174,6 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
     return acc;
   }, {});
 
-  const pins = useMemo(() => buildPins(hazardRegistry), [hazardRegistry]);
-
   // User-draggable legend: starts at the default bottom-left spot the first
   // time it is dragged; position is kept in state so the card stays where the
   // user left it while the map re-renders (5s polling).
@@ -305,23 +231,18 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
       getFillColor: (d: any) => getHazardStyle(d.properties?.hazard_type, hazardRegistry).color_rgb,
       getLineColor: isLightMode ? [255, 255, 255, 200] : [0, 0, 0, 200]
     }),
-    !heatmapActive && new IconLayer({
-      id: 'hazard-pins',
+    !heatmapActive && new ScatterplotLayer({
+      id: 'hazard-dots',
       data: pointFeatures,
       pickable: true,
       getPosition: (d: any) => d.geometry.coordinates,
-      getIcon: (d: any) => {
-        const type = String(d.properties?.hazard_type || 'unknown');
-        const pin = pins[type] || FALLBACK_PIN;
-        return { url: pin.url, width: pin.width, height: pin.height };
-      },
-      getSize: (d: any) => {
-        const type = String(d.properties?.hazard_type || 'unknown');
-        return (pins[type] || FALLBACK_PIN).size;
-      },
-      getAnchorX: 0.5,
-      getAnchorY: 1,
-      sizeUnits: 'pixels',
+      getFillColor: (d: any) => getHazardStyle(String(d.properties?.hazard_type || 'unknown'), hazardRegistry).color_rgb,
+      getRadius: () => 6,
+      radiusUnits: 'pixels',
+      stroked: true,
+      getLineColor: isLightMode ? [255, 255, 255, 220] : [0, 0, 0, 220],
+      lineWidthUnits: 'pixels',
+      getLineWidth: 1,
       onClick: (info) => {
         if (info.object && info.object.properties) {
           handleMapClick(info.object.properties.id);
@@ -550,7 +471,7 @@ const [activePanel, setActivePanel] = useState<'filters' | 'database' | 'setting
                 <div>
                   <h3 className={`font-heading font-bold mb-3 text-sm ${isLightMode ? 'text-stone-800' : 'text-slate-100'}`}>Map View Mode</h3>
                   <div className={`flex rounded-lg border overflow-hidden ${isLightMode ? 'border-stone-200' : 'border-white/10'}`}>
-                    {(['pins', 'clusters', 'heatmap'] as const).map(mode => (
+                    {(['points', 'clusters', 'heatmap'] as const).map(mode => (
                       <button
                         key={mode}
                         onClick={() => {
